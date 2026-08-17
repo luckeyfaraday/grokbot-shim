@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.csr
+*.srl
+
+# Generated from the locally installed Grok Bot application
+host/
+certs/
+
+# Runtime state
+appdata/
+logs/
+state/
+
+# Athena/Codex workspace metadata
+.context-workspace/
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*~
+
+# Coverage and package-manager output
+coverage/
+/doc/
+*.tgz
+npm-debug.log*
+
+# Accidental output from `asar extract-file`
+/host-main.cjs
+/host-main.cjs.map
