@@ -22,7 +22,7 @@
   "license": "ISC",
   "private": false,
   "dependencies": {
-    "protobufjs": "^7.6.5"
+    "protobufjs": "^8.7.2"
   },
   "devDependencies": {
     "@electron/asar": "^4.2.1"
