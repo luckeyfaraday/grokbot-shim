@@ -8,11 +8,8 @@ translates the app's inference protocol to supported model providers, and runs
 the Computer environment on the same machine. The user can watch or take over
 the desktop through noVNC.
 
-> [!IMPORTANT]
-> This is an independent compatibility project. It is not affiliated with,
-> endorsed by, or distributed by xAI, Anysphere, or OpenAI. You must provide
-> your own legitimate Grok Bot installation and model access. No Grok Bot
-> application files are included in this repository.
+The repository does not include application binaries. Setup extracts the
+required runtime files from the user's installed copy of Grok Bot.
 
 ## Status
 
