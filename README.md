@@ -171,6 +171,26 @@ with the user, a model must call the `SendMessage` tool supplied in the request.
 For that reason, provider models need reliable function calling, not only text
 generation.
 
+## Troubleshooting
+
+The Computer panel draws nothing (an empty frame under "<agent>'s screen") when
+the desktop app is started without `--no-sandbox` on its command line. The
+preview is an Electron `<webview>` on the box's noVNC page and the app marks that
+guest sandboxed, while its own in-process `no-sandbox` switch is applied too late
+to reach the guest. The half-sandboxed guest renderer cannot allocate shared
+memory, aborts on `/dev/shm`, and crash-loops, so the panel stays blank even
+though the box, VNC server, and noVNC endpoint are all healthy. `run-recon.sh`
+passes the flag for this reason. The fingerprint in `logs/app.out` is:
+
+```text
+ERROR:base/memory/platform_shared_memory_region_posix.cc:213] Creating shared memory in /dev/shm/... failed: No such process (3)
+FATAL:base/memory/platform_shared_memory_region_posix.cc:218] This is frequently caused by incorrect permissions on /dev/shm.
+```
+
+The desktop takeover page at <http://127.0.0.1:6080/vnc.html> is served straight
+from the container, so it keeps working regardless of this flag and is the quick
+way to tell a preview problem from a Computer problem.
+
 ## Privacy and security
 
 - The isolated Grok Bot profile does not modify the default application
