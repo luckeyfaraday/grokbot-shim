@@ -1,5 +1,7 @@
 # grokbot-shim
 
+![grokbot-shim — Run Codex and OpenAI-compatible models inside Grok Bot](assets/grokbot-shim-hero.png)
+
 Run the Grok Bot desktop agent locally with a local computer desktop and a
 configurable model backend.
 
