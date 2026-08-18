@@ -123,6 +123,48 @@ Provider support:
 The optional `fallback` field names another model entry to use if a Codex
 request is rejected because authentication or quota is unavailable.
 
+## Plugin marketplace
+
+The shim serves the public Cursor marketplace locally by default. It reads the
+same public catalog used by [cursor.com/marketplace](https://cursor.com/marketplace),
+caches it in `state/marketplace-catalog.json`, and translates it into the
+`DashboardService` protobuf responses expected by the desktop app. No Cursor
+session token is required.
+
+Install, enable, and uninstall state is kept in `state/plugin-installs.json`.
+Installed skills, rules, agents, and hooks are cloned by the app from each
+catalog entry's pinned public Git ref. MCP definitions are read from the
+catalog's pinned source URL, and configured values are stored locally with
+mode `0600`. Plugin setup request bodies are redacted from the shim capture log.
+
+Set `PLUGIN_MARKETPLACE=off` to disable the public bridge. The catalog is
+refreshed every 15 minutes while the shim is running; if refresh fails, the
+last cached copy remains usable.
+
+Private and team marketplaces still require a real upstream account. Setting
+`PLUGIN_MARKETPLACE=private` and `PLUGIN_PROXY=1` with a valid token forwards
+the three private catalog reads to `UPSTREAM`, while inference, shim
+authentication, and model metadata remain local:
+
+```dotenv
+PLUGIN_MARKETPLACE=private
+PLUGIN_PROXY=1
+UPSTREAM_TOKEN=your-session-token
+UPSTREAM_MACHINE_ID=the-machine-id-that-session-belongs-to
+```
+
+The client stamps private requests with `x-cursor-checksum`, an obfuscated
+timestamp followed by the machine id. The isolated profile in `appdata/`
+generates its own machine id on first run, so that header names a different
+machine than the session does; `UPSTREAM_MACHINE_ID` rewrites the identity
+while keeping the app's timestamp. A valid token paired with a mismatched
+machine id is one known way to get `ERROR_NOT_LOGGED_IN` back from the
+backend.
+
+The private proxy sends the plugin query and the identity behind
+`UPSTREAM_TOKEN` to the configured upstream. It is unnecessary for the public
+marketplace.
+
 ## Commands
 
 ```bash

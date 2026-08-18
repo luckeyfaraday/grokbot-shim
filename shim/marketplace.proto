@@ -1,0 +1,284 @@
+syntax = "proto3";
+package aiserver.v1;
+
+import "google/protobuf/struct.proto";
+
+// Wire-compatible subset of DashboardService's plugin marketplace messages.
+// The public marketplace page already exposes these records as JSON; the shim
+// translates them back into the protobuf responses expected by the desktop.
+
+enum PluginStatus {
+  PLUGIN_STATUS_UNSPECIFIED = 0;
+  PLUGIN_STATUS_DRAFT = 1;
+  PLUGIN_STATUS_PENDING_APPROVAL = 2;
+  PLUGIN_STATUS_APPROVED = 3;
+  PLUGIN_STATUS_REJECTED = 4;
+  PLUGIN_STATUS_UNLISTED = 5;
+}
+
+enum PluginLifecycleState {
+  PLUGIN_LIFECYCLE_STATE_UNSPECIFIED = 0;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_LISTED = 1;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_UNLISTED = 2;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_DRAFT = 3;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_PENDING = 4;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_REJECTED = 5;
+  PLUGIN_LIFECYCLE_STATE_PUBLISHER_SUBMISSION = 6;
+  PLUGIN_LIFECYCLE_STATE_PRIVATE_ACTIVE = 7;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_DEPRECATED = 10;
+  PLUGIN_LIFECYCLE_STATE_PRIVATE_DEPRECATED = 11;
+  PLUGIN_LIFECYCLE_STATE_PUBLIC_INVALID = 12;
+  PLUGIN_LIFECYCLE_STATE_PRIVATE_INVALID = 13;
+  PLUGIN_LIFECYCLE_STATE_PRIVATE_PUBLISHED = 14;
+}
+
+enum EffectivePluginInstallMode {
+  EFFECTIVE_PLUGIN_INSTALL_MODE_UNSPECIFIED = 0;
+  EFFECTIVE_PLUGIN_INSTALL_MODE_USER = 1;
+  EFFECTIVE_PLUGIN_INSTALL_MODE_TEAM_DEFAULT = 2;
+  EFFECTIVE_PLUGIN_INSTALL_MODE_TEAM_REQUIRED = 3;
+}
+
+message Publisher {
+  int64 id = 1;
+  string name = 2;
+  string display_name = 3;
+  optional string description = 4;
+  optional int32 owner_user_id = 5;
+  optional int32 owner_team_id = 6;
+  bool is_verified = 7;
+  optional int64 verified_at = 8;
+  optional string verified_domain = 9;
+  optional string logo_url = 10;
+  optional string website_url = 11;
+  optional string support_url = 12;
+  int64 created_at = 13;
+  int64 updated_at = 14;
+  bool is_user_owned = 15;
+}
+
+message Marketplace {
+  int64 id = 1;
+  string name = 2;
+  optional string display_name = 3;
+  optional string description = 4;
+  string git_url = 5;
+  optional string git_ref = 6;
+  optional int32 user_id = 7;
+  optional int32 team_id = 8;
+  optional string logo_url = 9;
+  int64 created_at = 10;
+  int64 updated_at = 11;
+  optional int64 last_indexed_at = 12;
+  optional string last_indexed_commit_sha = 13;
+  bool auto_reindex = 16;
+  optional string distribution_git_url = 17;
+  bool is_default = 18;
+  bool allow_user_publish = 19;
+}
+
+message SkillDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+  repeated string environments = 5;
+  repeated string disabled_environments = 6;
+  optional string display_name = 8;
+}
+
+message SubagentDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+}
+
+message HookDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+}
+
+message RuleDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+}
+
+message McpDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+}
+
+message CommandDescriptor {
+  string name = 1;
+  optional string description = 2;
+  optional string source_path = 3;
+  optional string source_url = 4;
+}
+
+message PluginMinClientVersions {
+  optional string cursor = 1;
+  optional string sand = 2;
+}
+
+message Plugin {
+  int64 id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  PluginStatus status = 6;
+  optional string repository_url = 8;
+  repeated string tags = 9;
+  optional string logo_url = 10;
+  optional string primary_color = 11;
+  bool is_published = 12;
+  int64 created_at = 13;
+  int64 updated_at = 14;
+  optional int64 publisher_id = 16;
+  optional Publisher publisher = 17;
+  bool is_deprecated = 18;
+  optional string deprecation_message = 19;
+  optional int64 deprecated_at = 20;
+  optional int64 replaced_by_plugin_id = 21;
+  optional int64 marketplace_id = 22;
+  optional Marketplace marketplace = 23;
+  string git_url = 24;
+  optional string git_ref = 25;
+  optional string git_path = 26;
+  string full_ref = 27;
+  repeated SkillDescriptor skills = 28;
+  repeated SubagentDescriptor subagents = 29;
+  repeated HookDescriptor hooks = 30;
+  repeated RuleDescriptor rules = 31;
+  repeated McpDescriptor mcp_servers = 32;
+  repeated CommandDescriptor commands = 33;
+  optional string release_repo = 34;
+  optional string release_asset = 35;
+  optional string release_tag = 36;
+  repeated string curated_category_keys = 37;
+  google.protobuf.Struct variables = 38;
+  PluginLifecycleState lifecycle_state = 41;
+  optional PluginMinClientVersions min_client_versions = 42;
+  bool published_by_user = 43;
+}
+
+message ListMarketplacePluginsRequest {
+  optional string search = 1;
+  repeated string tags = 2;
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+  optional int64 marketplace_id = 5;
+  optional int64 publisher_id = 6;
+  optional bool skip_team_admin_filter = 7;
+  optional bool exclude_cloud_agent_plugins = 8;
+}
+
+message ListMarketplacePluginsResponse {
+  repeated Plugin plugins = 1;
+  optional string next_page_token = 2;
+  bool has_more = 3;
+}
+
+message ListMarketplacesResponse {
+  repeated Marketplace marketplaces = 1;
+}
+
+message EffectivePlugin {
+  Plugin plugin = 1;
+  bool is_team_required = 3;
+  bool is_enabled = 4;
+  optional string pinned_git_ref = 6;
+  google.protobuf.Struct configured_variables = 7;
+  bool has_team_configured_variables = 8;
+  optional string inline_content_json = 9;
+  EffectivePluginInstallMode install_mode = 10;
+}
+
+message GetEffectiveUserPluginsResponse {
+  repeated EffectivePlugin plugins = 1;
+  repeated Marketplace marketplaces = 2;
+}
+
+message UserPluginInstall {
+  int32 user_id = 1;
+  int64 plugin_id = 2;
+  bool is_enabled = 4;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+  Plugin plugin = 8;
+  optional string pinned_git_ref = 10;
+}
+
+message ListUserPluginInstallsResponse {
+  repeated UserPluginInstall installs = 1;
+}
+
+message InstallUserPluginRequest {
+  int64 plugin_id = 1;
+  optional string pinned_git_ref = 4;
+  google.protobuf.Struct variables = 5;
+}
+
+message InstallUserPluginResponse { UserPluginInstall install = 1; }
+
+message UpdateUserPluginInstallRequest {
+  int64 plugin_id = 1;
+  optional bool is_enabled = 3;
+  optional string pinned_git_ref = 5;
+  google.protobuf.Struct variables = 6;
+}
+
+message UpdateUserPluginInstallResponse { UserPluginInstall install = 1; }
+
+message UninstallUserPluginRequest { int64 plugin_id = 1; }
+message UninstallUserPluginResponse { bool success = 1; }
+
+message GetAvailableMcpServersResponse {
+  message McpAccountInfo {
+    string account_key = 1;
+    string server_identifier = 2;
+    bool user_has_access_token = 3;
+  }
+  message McpServerInfo {
+    int32 id = 1;
+    string name = 2;
+    bool is_team_server = 3;
+    bool enabled = 4;
+    string type = 5;
+    optional string command = 6;
+    repeated string args = 7;
+    optional string url = 8;
+    optional int64 plugin_id = 9;
+    bool is_unseen = 10;
+    optional bool user_has_access_token = 11;
+    bool is_required = 12;
+    bool managed_by_team_plugin_policy = 13;
+    bool disabled_by_team_admin_policy = 14;
+    optional string server_identifier = 15;
+    optional int32 owning_team_id = 16;
+    repeated McpAccountInfo accounts = 17;
+  }
+  repeated McpServerInfo servers = 1;
+}
+
+message McpServerMetadata {
+  optional int64 plugin_id = 1;
+  int64 server_id = 2;
+}
+
+message GetMcpConfigResponse {
+  string config_json = 1;
+  map<string, McpServerMetadata> server_metadata_by_name = 2;
+}
+
+message GetPluginMcpConfigRequest { int64 plugin_id = 1; }
+message GetPluginMcpConfigResponse {
+  string config_json = 1;
+  string commit_sha = 2;
+}
