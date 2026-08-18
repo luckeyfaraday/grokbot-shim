@@ -31,7 +31,7 @@ the desktop application changes.
 - Linux with the Grok Bot desktop application installed;
 - Node.js 22.12 or newer;
 - Docker with a running daemon;
-- OpenSSL and curl;
+- OpenSSL, curl, and Python 3 with `venv` support;
 - an existing `codex login` session for Codex OAuth models, or an API key for
   an OpenAI-compatible provider.
 
@@ -122,6 +122,60 @@ Provider support:
 
 The optional `fallback` field names another model entry to use if a Codex
 request is rejected because authentication or quota is unavailable.
+
+## Plugin marketplace
+
+The shim serves the public Cursor marketplace locally by default. It reads the
+same public catalog used by [cursor.com/marketplace](https://cursor.com/marketplace),
+caches it in `state/marketplace-catalog.json`, and translates it into the
+`DashboardService` protobuf responses expected by the desktop app. No Cursor
+session token is required.
+
+The catalog is public, while install state, connector accounts, OAuth, and
+remote MCP execution belong to the signed-in Grok Bot service. The shim reuses
+the session already stored by the installed Grok Bot app, just as the original
+client does. Adding Gmail, Calendar, Drive, Slack, or another remote MCP plugin
+therefore requires no developer credentials or extra setup: click **Add**, then
+**Authenticate** to open the provider's normal consent screen.
+
+The native session remains in the desktop keyring and is refreshed only in the
+shim's memory. It is hard-wired to the official `https://api2.cursor.sh`
+service, regardless of the general `UPSTREAM` setting. Native plugin request
+and response bodies are omitted from capture logs. `npm run setup` installs the
+small Python keyring bridge into ignored local state automatically.
+
+The default native profile is `~/.config/Grok Bot`. If the official app uses a
+nonstandard profile, set `GROKBOT_PROFILE`; otherwise no plugin-specific
+configuration is needed. Grok Bot must have been signed in once, which is the
+same prerequisite as using plugins in the original client.
+
+Set `PLUGIN_MARKETPLACE=off` to disable the public bridge. The catalog is
+refreshed every 15 minutes while the shim is running; if refresh fails, the
+last cached copy remains usable.
+
+Private and team marketplaces still require a real upstream account. Setting
+`PLUGIN_MARKETPLACE=private` and `PLUGIN_PROXY=1` with a valid token forwards
+the three private catalog reads to `UPSTREAM`, while inference, shim
+authentication, and model metadata remain local:
+
+```dotenv
+PLUGIN_MARKETPLACE=private
+PLUGIN_PROXY=1
+UPSTREAM_TOKEN=your-session-token
+UPSTREAM_MACHINE_ID=the-machine-id-that-session-belongs-to
+```
+
+The client stamps private requests with `x-cursor-checksum`, an obfuscated
+timestamp followed by the machine id. The isolated profile in `appdata/`
+generates its own machine id on first run, so that header names a different
+machine than the session does; `UPSTREAM_MACHINE_ID` rewrites the identity
+while keeping the app's timestamp. A valid token paired with a mismatched
+machine id is one known way to get `ERROR_NOT_LOGGED_IN` back from the
+backend.
+
+The private proxy sends the plugin query and the identity behind
+`UPSTREAM_TOKEN` to the configured upstream. It is unnecessary for the public
+marketplace.
 
 ## Commands
 

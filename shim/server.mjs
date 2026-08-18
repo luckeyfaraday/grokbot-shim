@@ -6,6 +6,21 @@ import { mintJwt } from "./jwt.mjs";
 import { decodeStreamRequest, runSession, requestSummary } from "./inference.mjs";
 import { encodeAvailableModels } from "./models.mjs";
 import { statsigBootstrap } from "./statsig.mjs";
+import {
+  clearNativeSessionCache,
+  NATIVE_GROKBOT_UPSTREAM,
+  nativePluginSession,
+  nativeSessionChecksum,
+  shouldUseNativePluginBackend,
+} from "./upstream-session.mjs";
+import {
+  marketplaceAuthOverride,
+  marketplaceChecksumOverride,
+  marketplaceProxyEnabled,
+  publicMarketplaceResponse,
+  shouldServePublicMarketplace,
+  shouldProxyMarketplace,
+} from "./marketplace.mjs";
 
 function parseConnectFrames(buf) {
   const frames = [];
@@ -120,12 +135,22 @@ const HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-async function forward(req, p, body, res) {
+const SECRET_BODY_PATHS = new Set([
+  "/aiserver.v1.DashboardService/InstallUserPlugin",
+  "/aiserver.v1.DashboardService/UpdateUserPluginInstall",
+  "/aiserver.v1.DashboardService/SetMcpConfig",
+  "/aiserver.v1.DashboardService/CompleteMcpOAuth",
+  "/aiserver.v1.DashboardService/ExecuteSandMcpTool",
+]);
+
+async function fetchUpstream(req, p, body, { authorization, checksum, baseUrl } = {}) {
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
     if (!HOP_HEADERS.has(k.toLowerCase())) headers[k] = v;
   }
-  const target = UPSTREAM.replace(/\/+$/, "") + p;
+  if (authorization) headers.authorization = authorization;
+  if (checksum) headers["x-cursor-checksum"] = checksum;
+  const target = String(baseUrl ?? UPSTREAM).replace(/\/+$/, "") + p;
   const upstream = await fetch(target, {
     method: req.method,
     headers,
@@ -139,18 +164,56 @@ async function forward(req, p, body, res) {
       respHeaders[k] = v;
     }
   });
+  return {
+    status: upstream.status,
+    contentType: upstream.headers.get("content-type"),
+    respHeaders,
+    respBuf,
+  };
+}
+
+async function fetchNativePluginBackend(req, p, body) {
+  let session = await nativePluginSession();
+  let response = await fetchUpstream(req, p, body, {
+    authorization: `Bearer ${session.accessToken}`,
+    checksum: nativeSessionChecksum(req.headers["x-cursor-checksum"], session.machineId),
+    baseUrl: NATIVE_GROKBOT_UPSTREAM,
+  });
+  if (response.status === 401) {
+    clearNativeSessionCache();
+    session = await nativePluginSession();
+    response = await fetchUpstream(req, p, body, {
+      authorization: `Bearer ${session.accessToken}`,
+      checksum: nativeSessionChecksum(req.headers["x-cursor-checksum"], session.machineId),
+      baseUrl: NATIVE_GROKBOT_UPSTREAM,
+    });
+  }
+  return response;
+}
+
+function sendUpstream(
+  res,
+  p,
+  { status, contentType, respHeaders, respBuf },
+  { redact = false } = {},
+) {
   cors(res);
-  res.writeHead(upstream.status, respHeaders);
+  res.writeHead(status, respHeaders);
   res.end(respBuf);
   log({
     kind: "forwarded-response",
     path: p,
-    status: upstream.status,
-    respContentType: upstream.headers.get("content-type"),
-    respBodyB64: respBuf.toString("base64"),
-    respBodyText: respBuf.length < 200_000 ? respBuf.toString("utf8") : undefined,
+    status,
+    respContentType: contentType,
+    respBodyB64: redact ? undefined : respBuf.toString("base64"),
+    respBodyText: !redact && respBuf.length < 200_000 ? respBuf.toString("utf8") : undefined,
+    respBodyRedacted: redact || undefined,
   });
-  return `forward ${upstream.status} (${respBuf.length}B)`;
+  return `forward ${status} (${respBuf.length}B)`;
+}
+
+async function forward(req, p, body, res, options) {
+  return sendUpstream(res, p, await fetchUpstream(req, p, body, options));
 }
 
 function stubResponse(req, p, res) {
@@ -184,13 +247,15 @@ const server = https.createServer(
     const ct = String(req.headers["content-type"] ?? "");
     const bodyJson = tryJson(body);
 
+    const secretBody = SECRET_BODY_PATHS.has(pathname);
     log({
       kind: "request",
       method: req.method,
       path: p,
       headers: req.headers,
-      bodyB64: body.toString("base64"),
-      bodyJson,
+      bodyB64: secretBody ? undefined : body.toString("base64"),
+      bodyJson: secretBody ? undefined : bodyJson,
+      bodyRedacted: secretBody || undefined,
     });
 
     if (req.method === "OPTIONS") {
@@ -266,6 +331,60 @@ const server = https.createServer(
           res.end(CONNECT_END_FRAME);
           out = `inference ${n} frames`;
         }
+      } else if (shouldUseNativePluginBackend(pathname)) {
+        out = sendUpstream(res, p, await fetchNativePluginBackend(req, p, body), { redact: true });
+      } else if (shouldProxyMarketplace(pathname) && marketplaceAuthOverride()) {
+        // Losing the catalog must not take the Plugins panel down with it. The
+        // panel renders "no plugins" calmly but turns any error into a rejected
+        // IPC handler, so anything other than a served catalog degrades to the
+        // empty stub — and says plainly in the log which case it was, because a
+        // stub is otherwise indistinguishable from a genuinely empty
+        // marketplace.
+        try {
+          const upstream = await fetchUpstream(req, p, body, {
+            authorization: marketplaceAuthOverride(),
+            checksum: marketplaceChecksumOverride(req.headers["x-cursor-checksum"]),
+          });
+          if (upstream.status === 200) {
+            out = sendUpstream(res, p, upstream);
+          } else if (shouldServePublicMarketplace(pathname)) {
+            const local = await publicMarketplaceResponse(pathname, body);
+            cors(res);
+            res.writeHead(200, { "content-type": "application/proto" });
+            res.end(local.bytes);
+            out = `${local.label} (private upstream ${upstream.status})`;
+          } else {
+            log({
+              kind: "marketplace-proxy-rejected",
+              path: p,
+              status: upstream.status,
+              respBodyText: upstream.respBuf.subarray(0, 2000).toString("utf8"),
+            });
+            console.error(
+              `[marketplace] ${UPSTREAM} refused the catalog: ${upstream.status}` +
+                (marketplaceAuthOverride() ? "" : " (no UPSTREAM_TOKEN set)"),
+            );
+            out = `${stubResponse(req, p, res)} (upstream ${upstream.status})`;
+          }
+        } catch (err) {
+          log({ kind: "marketplace-proxy-error", path: p, error: String(err?.stack ?? err) });
+          console.error(`[marketplace] proxy to ${UPSTREAM} failed: ${err?.message ?? err}`);
+          if (shouldServePublicMarketplace(pathname)) {
+            const local = await publicMarketplaceResponse(pathname, body);
+            cors(res);
+            res.writeHead(200, { "content-type": "application/proto" });
+            res.end(local.bytes);
+            out = `${local.label} (private proxy failed)`;
+          } else {
+            out = `${stubResponse(req, p, res)} (proxy failed)`;
+          }
+        }
+      } else if (shouldServePublicMarketplace(pathname)) {
+        const local = await publicMarketplaceResponse(pathname, body);
+        cors(res);
+        res.writeHead(200, { "content-type": "application/proto" });
+        res.end(local.bytes);
+        out = local.label;
       } else if (MODE === "forward") {
         out = await forward(req, p, body, res);
       } else {
@@ -290,4 +409,14 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`grokbot-shim recon server: https://localhost:${PORT} (mode=${MODE})`);
   console.log(`capture log: ${path.join(LOG_DIR, `capture-${stamp}.jsonl`)}`);
   if (MODE === "forward") console.log(`upstream: ${UPSTREAM}`);
+  if (marketplaceProxyEnabled()) {
+    if (marketplaceAuthOverride()) {
+      console.log(`private plugin marketplace: proxying to ${UPSTREAM} using UPSTREAM_TOKEN`);
+    } else {
+      console.log("private plugin marketplace: no UPSTREAM_TOKEN; using the public local bridge");
+    }
+  }
+  console.log(
+    `plugin installs, connector OAuth, and remote MCP execution: signed-in Grok Bot backend (${NATIVE_GROKBOT_UPSTREAM})`,
+  );
 });
