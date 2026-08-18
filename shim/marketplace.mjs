@@ -3,15 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import protobuf from "protobufjs";
 
-import {
-  beginMcpOauth,
-  completeMcpOauth,
-  executeRemoteMcpTool,
-  hasMcpAccessToken,
-  listRemoteMcpTools,
-  removeMcpAccessToken,
-} from "./mcp-oauth.mjs";
-import { jsonToStruct, jsonToValue, structToJson } from "./struct.mjs";
+import { jsonToStruct, structToJson } from "./struct.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_DIR = path.join(ROOT, "state");
@@ -39,18 +31,6 @@ const types = Object.fromEntries(
     "GetMcpConfigResponse",
     "GetPluginMcpConfigRequest",
     "GetPluginMcpConfigResponse",
-    "ListSandMcpToolsRequest",
-    "ListSandMcpToolsResponse",
-    "ExecuteSandMcpToolRequest",
-    "ExecuteSandMcpToolResponse",
-    "CheckHttpMcpStatusRequest",
-    "CheckHttpMcpStatusResponse",
-    "CompleteMcpOAuthRequest",
-    "CompleteMcpOAuthResponse",
-    "ValidateMcpOAuthTokensRequest",
-    "ValidateMcpOAuthTokensResponse",
-    "DeleteMcpOAuthTokenRequest",
-    "DeleteMcpOAuthTokenResponse",
   ].map((name) => [name, protoRoot.lookupType(`aiserver.v1.${name}`)]),
 );
 
@@ -69,12 +49,6 @@ export const LOCAL_MARKETPLACE_PATHS = new Set([
   "/aiserver.v1.DashboardService/GetAvailableMcpServers",
   "/aiserver.v1.DashboardService/GetMcpConfig",
   "/aiserver.v1.DashboardService/GetPluginMcpConfig",
-  "/aiserver.v1.DashboardService/ListSandMcpTools",
-  "/aiserver.v1.DashboardService/ExecuteSandMcpTool",
-  "/aiserver.v1.DashboardService/CheckHttpMcpStatus",
-  "/aiserver.v1.DashboardService/CompleteMcpOAuth",
-  "/aiserver.v1.DashboardService/ValidateMcpOAuthTokens",
-  "/aiserver.v1.DashboardService/DeleteMcpOAuthToken",
 ]);
 
 // Backwards-compatible name used by the first proxy-only implementation.
@@ -425,79 +399,6 @@ async function installedMcpServers(plugins, state) {
   return rows;
 }
 
-function remoteToolForWire(row, tool) {
-  const toolName = String(tool?.name ?? "");
-  return {
-    name: `${row.name}-${toolName}`,
-    providerIdentifier: `plugin:${row.pluginId}:${row.name}`,
-    toolName,
-    description: String(tool?.description ?? ""),
-    inputSchema: jsonToValue(tool?.inputSchema ?? { type: "object" }),
-  };
-}
-
-function remoteResultForWire(result) {
-  const content = (Array.isArray(result?.content) ? result.content : []).map((item) => {
-    if (item?.type === "text") return { text: { text: String(item.text ?? "") } };
-    if (item?.type === "image") {
-      return {
-        image: {
-          data: Buffer.from(String(item.data ?? ""), "base64"),
-          mimeType: String(item.mimeType ?? "application/octet-stream"),
-        },
-      };
-    }
-    return { text: { text: JSON.stringify(item ?? null) } };
-  });
-  return {
-    success: {
-      content,
-      isError: result?.isError === true,
-      ...(result?.structuredContent && typeof result.structuredContent === "object"
-        ? { structuredContent: jsonToStruct(result.structuredContent) }
-        : {}),
-    },
-  };
-}
-
-function remoteErrorForWire(error) {
-  return { error: { error: String(error?.message ?? error).slice(0, 1000) } };
-}
-
-export function availableMcpServerMessage(row, hasToken = false) {
-  const { pluginId, name, id, type, config } = row;
-  const identifier = `plugin:${pluginId}:${name}`;
-  const http = type.toLocaleLowerCase() !== "stdio" && Boolean(config.url);
-  return {
-    id,
-    name,
-    isTeamServer: false,
-    enabled: true,
-    type,
-    ...(config.command ? { command: config.command } : {}),
-    ...(Array.isArray(config.args) ? { args: config.args.map(String) } : {}),
-    ...(config.url ? { url: config.url } : {}),
-    pluginId,
-    isUnseen: false,
-    ...(http ? { userHasAccessToken: hasToken } : {}),
-    isRequired: false,
-    managedByTeamPluginPolicy: false,
-    disabledByTeamAdminPolicy: false,
-    serverIdentifier: identifier,
-    ...(http
-      ? {
-          accounts: [
-            {
-              accountKey: "default",
-              serverIdentifier: identifier,
-              userHasAccessToken: hasToken,
-            },
-          ],
-        }
-      : {}),
-  };
-}
-
 export async function publicMarketplaceResponse(pathname, body, env = process.env) {
   const plugins = await loadPublicCatalog(env);
   const state = loadInstalls();
@@ -601,15 +502,25 @@ export async function publicMarketplaceResponse(pathname, body, env = process.en
     }
     case "/aiserver.v1.DashboardService/GetAvailableMcpServers": {
       const rows = await installedMcpServers(plugins, state);
-      const servers = await Promise.all(
-        rows.map(async (row) => {
-          const http = row.type.toLocaleLowerCase() !== "stdio" && Boolean(row.config.url);
-          const hasToken = http ? await hasMcpAccessToken(row.config.url, "default", env) : false;
-          return availableMcpServerMessage(row, hasToken);
-        }),
-      );
       return {
-        bytes: encode("GetAvailableMcpServersResponse", { servers }),
+        bytes: encode("GetAvailableMcpServersResponse", {
+          servers: rows.map(({ pluginId, name, id, type, config }) => ({
+            id,
+            name,
+            isTeamServer: false,
+            enabled: true,
+            type,
+            ...(config.command ? { command: config.command } : {}),
+            ...(Array.isArray(config.args) ? { args: config.args.map(String) } : {}),
+            ...(config.url ? { url: config.url } : {}),
+            pluginId,
+            isUnseen: false,
+            isRequired: false,
+            managedByTeamPluginPolicy: false,
+            disabledByTeamAdminPolicy: false,
+            serverIdentifier: `plugin:${pluginId}:${name}`,
+          })),
+        }),
         label: `local MCP servers ${rows.length}`,
       };
     }
@@ -637,114 +548,6 @@ export async function publicMarketplaceResponse(pathname, body, env = process.en
           commitSha: plugin?.gitRef ?? "",
         }),
         label: `plugin MCP config ${plugin?.name ?? "unknown"}`,
-      };
-    }
-    case "/aiserver.v1.DashboardService/ListSandMcpTools": {
-      const request = decode("ListSandMcpToolsRequest", body);
-      const requested = new Set(request.serverIdentifiers ?? []);
-      const rows = (await installedMcpServers(plugins, state)).filter(
-        (row) => row.config.url && (requested.size === 0 || requested.has(`plugin:${row.pluginId}:${row.name}`)),
-      );
-      const servers = await Promise.all(
-        rows.map(async (row) => {
-          const identifier = `plugin:${row.pluginId}:${row.name}`;
-          const listed = await listRemoteMcpTools(row, env);
-          return {
-            serverIdentifier: identifier,
-            status: listed.status,
-            tools: listed.tools.map((tool) => remoteToolForWire(row, tool)),
-            accountLabel: "default",
-            rowServerIdentifier: identifier,
-          };
-        }),
-      );
-      return {
-        bytes: encode("ListSandMcpToolsResponse", { servers }),
-        label: `remote MCP tools ${servers.length}`,
-      };
-    }
-    case "/aiserver.v1.DashboardService/ExecuteSandMcpTool": {
-      const request = decode("ExecuteSandMcpToolRequest", body);
-      const rows = await installedMcpServers(plugins, state);
-      const row = rows.find(
-        (candidate) => `plugin:${candidate.pluginId}:${candidate.name}` === request.serverIdentifier,
-      );
-      let result;
-      if (!row?.config.url) {
-        result = remoteErrorForWire(new Error("the requested remote MCP server is not installed"));
-      } else {
-        const prefix = `${row.name}-`;
-        const toolName = request.toolName.startsWith(prefix)
-          ? request.toolName.slice(prefix.length)
-          : request.toolName;
-        try {
-          result = remoteResultForWire(
-            await executeRemoteMcpTool(row, toolName, structToJson(request.args) ?? {}, env),
-          );
-        } catch (error) {
-          result = remoteErrorForWire(error);
-        }
-      }
-      return {
-        bytes: encode("ExecuteSandMcpToolResponse", { result }),
-        label: `remote MCP execute ${row?.name ?? "unknown"}`,
-      };
-    }
-    case "/aiserver.v1.DashboardService/CheckHttpMcpStatus": {
-      const request = decode("CheckHttpMcpStatusRequest", body);
-      const rows = await installedMcpServers(plugins, state);
-      const statuses = await Promise.all(
-        (request.serverIds ?? []).map(async (id) => {
-          const row = rows.find((candidate) => candidate.id === id);
-          if (!row?.config.url) {
-            return {
-              id,
-              isAvailable: false,
-              requiresAuth: false,
-              hasValidToken: false,
-              error: "The remote MCP connector is not installed.",
-            };
-          }
-          return { id, ...(await beginMcpOauth(row, request, env)) };
-        }),
-      );
-      return {
-        bytes: encode("CheckHttpMcpStatusResponse", { statuses }),
-        label: `MCP OAuth status ${statuses.length}`,
-      };
-    }
-    case "/aiserver.v1.DashboardService/CompleteMcpOAuth": {
-      const request = decode("CompleteMcpOAuthRequest", body);
-      const completed = await completeMcpOauth(request, env);
-      return {
-        bytes: encode("CompleteMcpOAuthResponse", completed),
-        label: "completed MCP OAuth",
-      };
-    }
-    case "/aiserver.v1.DashboardService/ValidateMcpOAuthTokens": {
-      const request = decode("ValidateMcpOAuthTokensRequest", body);
-      const targets = [
-        ...(request.serverUrls ?? []).map((serverUrl) => ({ serverUrl, accountKey: "default" })),
-        ...(request.targets ?? []),
-      ];
-      const results = await Promise.all(
-        targets.map(async (target) => ({
-          serverUrl: target.serverUrl,
-          accountKey: String(target.accountKey || "default").toLocaleLowerCase(),
-          hasValidToken: await hasMcpAccessToken(target.serverUrl, target.accountKey, env),
-        })),
-      );
-      return {
-        bytes: encode("ValidateMcpOAuthTokensResponse", { results }),
-        label: `validated MCP OAuth ${results.length}`,
-      };
-    }
-    case "/aiserver.v1.DashboardService/DeleteMcpOAuthToken": {
-      const request = decode("DeleteMcpOAuthTokenRequest", body);
-      removeMcpAccessToken(request.serverUrl, request.accountKey);
-      return {
-        bytes: encode("DeleteMcpOAuthTokenResponse", {}),
-        label: "deleted MCP OAuth token",
       };
     }
     default:

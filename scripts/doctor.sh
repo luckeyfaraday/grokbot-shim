@@ -28,11 +28,21 @@ check_command npm
 check_command openssl
 check_command docker
 check_command curl
+check_command python3
 check_file "$GROKBOT_APP"
 check_file "$ROOT/certs/rootCA.pem"
 check_file "$ROOT/certs/localhost.pem"
 check_file "$ROOT/certs/localhost.key"
 check_file "$ROOT/host/dist/host/host-main.cjs"
+check_file "$ROOT/state/native-session-venv/bin/python"
+
+if [[ -x "$ROOT/state/native-session-venv/bin/python" ]] && \
+  "$ROOT/state/native-session-venv/bin/python" -c 'import cryptography, secretstorage' >/dev/null 2>&1; then
+  echo "ok  native Grok Bot session bridge"
+else
+  echo "missing  native Grok Bot session bridge"
+  failed=1
+fi
 
 if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
   echo "unavailable  Docker daemon"

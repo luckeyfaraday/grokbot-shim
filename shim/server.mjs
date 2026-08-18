@@ -7,6 +7,13 @@ import { decodeStreamRequest, runSession, requestSummary } from "./inference.mjs
 import { encodeAvailableModels } from "./models.mjs";
 import { statsigBootstrap } from "./statsig.mjs";
 import {
+  clearNativeSessionCache,
+  NATIVE_GROKBOT_UPSTREAM,
+  nativePluginSession,
+  nativeSessionChecksum,
+  shouldUseNativePluginBackend,
+} from "./upstream-session.mjs";
+import {
   marketplaceAuthOverride,
   marketplaceChecksumOverride,
   marketplaceProxyEnabled,
@@ -136,14 +143,14 @@ const SECRET_BODY_PATHS = new Set([
   "/aiserver.v1.DashboardService/ExecuteSandMcpTool",
 ]);
 
-async function fetchUpstream(req, p, body, { authorization, checksum } = {}) {
+async function fetchUpstream(req, p, body, { authorization, checksum, baseUrl } = {}) {
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
     if (!HOP_HEADERS.has(k.toLowerCase())) headers[k] = v;
   }
   if (authorization) headers.authorization = authorization;
   if (checksum) headers["x-cursor-checksum"] = checksum;
-  const target = UPSTREAM.replace(/\/+$/, "") + p;
+  const target = String(baseUrl ?? UPSTREAM).replace(/\/+$/, "") + p;
   const upstream = await fetch(target, {
     method: req.method,
     headers,
@@ -165,7 +172,31 @@ async function fetchUpstream(req, p, body, { authorization, checksum } = {}) {
   };
 }
 
-function sendUpstream(res, p, { status, contentType, respHeaders, respBuf }) {
+async function fetchNativePluginBackend(req, p, body) {
+  let session = await nativePluginSession();
+  let response = await fetchUpstream(req, p, body, {
+    authorization: `Bearer ${session.accessToken}`,
+    checksum: nativeSessionChecksum(req.headers["x-cursor-checksum"], session.machineId),
+    baseUrl: NATIVE_GROKBOT_UPSTREAM,
+  });
+  if (response.status === 401) {
+    clearNativeSessionCache();
+    session = await nativePluginSession();
+    response = await fetchUpstream(req, p, body, {
+      authorization: `Bearer ${session.accessToken}`,
+      checksum: nativeSessionChecksum(req.headers["x-cursor-checksum"], session.machineId),
+      baseUrl: NATIVE_GROKBOT_UPSTREAM,
+    });
+  }
+  return response;
+}
+
+function sendUpstream(
+  res,
+  p,
+  { status, contentType, respHeaders, respBuf },
+  { redact = false } = {},
+) {
   cors(res);
   res.writeHead(status, respHeaders);
   res.end(respBuf);
@@ -174,8 +205,9 @@ function sendUpstream(res, p, { status, contentType, respHeaders, respBuf }) {
     path: p,
     status,
     respContentType: contentType,
-    respBodyB64: respBuf.toString("base64"),
-    respBodyText: respBuf.length < 200_000 ? respBuf.toString("utf8") : undefined,
+    respBodyB64: redact ? undefined : respBuf.toString("base64"),
+    respBodyText: !redact && respBuf.length < 200_000 ? respBuf.toString("utf8") : undefined,
+    respBodyRedacted: redact || undefined,
   });
   return `forward ${status} (${respBuf.length}B)`;
 }
@@ -299,6 +331,8 @@ const server = https.createServer(
           res.end(CONNECT_END_FRAME);
           out = `inference ${n} frames`;
         }
+      } else if (shouldUseNativePluginBackend(pathname)) {
+        out = sendUpstream(res, p, await fetchNativePluginBackend(req, p, body), { redact: true });
       } else if (shouldProxyMarketplace(pathname) && marketplaceAuthOverride()) {
         // Losing the catalog must not take the Plugins panel down with it. The
         // panel renders "no plugins" calmly but turns any error into a rejected
@@ -382,4 +416,7 @@ server.listen(PORT, "127.0.0.1", () => {
       console.log("private plugin marketplace: no UPSTREAM_TOKEN; using the public local bridge");
     }
   }
+  console.log(
+    `plugin installs, connector OAuth, and remote MCP execution: signed-in Grok Bot backend (${NATIVE_GROKBOT_UPSTREAM})`,
+  );
 });

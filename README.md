@@ -31,7 +31,7 @@ the desktop application changes.
 - Linux with the Grok Bot desktop application installed;
 - Node.js 22.12 or newer;
 - Docker with a running daemon;
-- OpenSSL and curl;
+- OpenSSL, curl, and Python 3 with `venv` support;
 - an existing `codex login` session for Codex OAuth models, or an API key for
   an OpenAI-compatible provider.
 
@@ -131,32 +131,23 @@ caches it in `state/marketplace-catalog.json`, and translates it into the
 `DashboardService` protobuf responses expected by the desktop app. No Cursor
 session token is required.
 
-Install, enable, and uninstall state is kept in `state/plugin-installs.json`.
-Installed skills, rules, agents, and hooks are cloned by the app from each
-catalog entry's pinned public Git ref. MCP definitions are read from the
-catalog's pinned source URL, and configured values are stored locally with
-mode `0600`. Plugin setup request bodies are redacted from the shim capture log.
+The catalog is public, while install state, connector accounts, OAuth, and
+remote MCP execution belong to the signed-in Grok Bot service. The shim reuses
+the session already stored by the installed Grok Bot app, just as the original
+client does. Adding Gmail, Calendar, Drive, Slack, or another remote MCP plugin
+therefore requires no developer credentials or extra setup: click **Add**, then
+**Authenticate** to open the provider's normal consent screen.
 
-Remote MCP plugins expose a default account row in the plugin detail panel.
-Their OAuth credentials cannot come from the public marketplace: the official
-app normally delegates that private state to Cursor's backend. The shim instead
-supports a local standards-based OAuth bridge. For Gmail, Calendar, and Drive,
-create your own Google OAuth client with `http://localhost:8787/callback` as an
-authorized redirect URI, then set:
+The native session remains in the desktop keyring and is refreshed only in the
+shim's memory. It is hard-wired to the official `https://api2.cursor.sh`
+service, regardless of the general `UPSTREAM` setting. Native plugin request
+and response bodies are omitted from capture logs. `npm run setup` installs the
+small Python keyring bridge into ignored local state automatically.
 
-```dotenv
-MCP_GOOGLE_CLIENT_ID=your-google-client-id
-MCP_GOOGLE_CLIENT_SECRET=your-google-client-secret
-# Optional; Gmail defaults to the least-privilege scope used by the bridge.
-MCP_GOOGLE_SCOPES=https://www.googleapis.com/auth/gmail.modify
-```
-
-Restart the shim after changing those values. The **Authenticate** button then
-opens the provider's real consent screen. Access and refresh tokens are stored
-only in the ignored `state/mcp-oauth.json` file with mode `0600`; OAuth callback
-codes and remote tool arguments are redacted from capture logs. Other
-standards-based remote MCP servers can use the generic `MCP_OAUTH_CLIENT_ID`,
-`MCP_OAUTH_CLIENT_SECRET`, and `MCP_OAUTH_SCOPES` settings.
+The default native profile is `~/.config/Grok Bot`. If the official app uses a
+nonstandard profile, set `GROKBOT_PROFILE`; otherwise no plugin-specific
+configuration is needed. Grok Bot must have been signed in once, which is the
+same prerequisite as using plugins in the original client.
 
 Set `PLUGIN_MARKETPLACE=off` to disable the public bridge. The catalog is
 refreshed every 15 minutes while the shim is running; if refresh fails, the

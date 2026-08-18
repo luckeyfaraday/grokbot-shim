@@ -2,7 +2,6 @@ syntax = "proto3";
 package aiserver.v1;
 
 import "google/protobuf/struct.proto";
-import "mcp.proto";
 
 // Wire-compatible subset of DashboardService's plugin marketplace messages.
 // The public marketplace page already exposes these records as JSON; the shim
@@ -283,88 +282,3 @@ message GetPluginMcpConfigResponse {
   string config_json = 1;
   string commit_sha = 2;
 }
-
-message ListSandMcpToolsRequest { repeated string server_identifiers = 1; }
-
-message ListSandMcpToolsResponse {
-  message Server {
-    string server_identifier = 1;
-    string status = 2;
-    repeated agent.v1.McpToolDefinition tools = 3;
-    string account_label = 4;
-    string row_server_identifier = 5;
-  }
-  repeated Server servers = 1;
-}
-
-message ExecuteSandMcpToolRequest {
-  string server_identifier = 1;
-  string tool_name = 2;
-  google.protobuf.Struct args = 3;
-  string tool_call_id = 4;
-  string agent_id = 5;
-  string turn_id = 6;
-}
-
-message ExecuteSandMcpToolResponse { agent.v1.McpResult result = 1; }
-
-message CheckHttpMcpStatusRequest {
-  repeated int32 server_ids = 1;
-  string oauth_redirect_uri = 2;
-  optional int32 team_id = 3;
-  optional string service_account_id = 4;
-  bool force_reauth = 5;
-  optional string service_account_type = 6;
-  optional string post_auth_return_url = 7;
-  string account_key = 8;
-}
-
-message CheckHttpMcpStatusResponse {
-  message ServerStatus {
-    int32 id = 1;
-    bool is_available = 2;
-    bool requires_auth = 3;
-    optional string auth_url = 4;
-    optional string error = 5;
-    bool has_valid_token = 6;
-  }
-  repeated ServerStatus statuses = 1;
-}
-
-message CompleteMcpOAuthRequest {
-  string state_id = 1;
-  string authorization_code = 2;
-}
-
-message CompleteMcpOAuthResponse {
-  string post_auth_return_url = 1;
-  string account_key = 2;
-}
-
-message ValidateMcpOAuthTokensRequest {
-  message Target {
-    string server_url = 1;
-    string account_key = 2;
-  }
-  repeated string server_urls = 1;
-  optional string service_account_id = 2;
-  repeated Target targets = 3;
-}
-
-message ValidateMcpOAuthTokensResponse {
-  message Result {
-    string server_url = 1;
-    bool has_valid_token = 2;
-    string account_key = 3;
-  }
-  repeated Result results = 1;
-}
-
-message DeleteMcpOAuthTokenRequest {
-  string server_url = 1;
-  optional string service_account_id = 2;
-  optional string source = 3;
-  string account_key = 4;
-}
-
-message DeleteMcpOAuthTokenResponse {}

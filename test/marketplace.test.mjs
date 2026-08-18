@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
-import protobuf from "protobufjs";
 
 import {
   MARKETPLACE_PATHS,
-  availableMcpServerMessage,
   marketplaceAuthOverride,
   marketplaceChecksumOverride,
   marketplaceProxyEnabled,
@@ -15,6 +11,12 @@ import {
   shouldServePublicMarketplace,
   shouldProxyMarketplace,
 } from "../shim/marketplace.mjs";
+import {
+  NATIVE_PLUGIN_PATHS,
+  NATIVE_GROKBOT_UPSTREAM,
+  nativeSessionChecksum,
+  shouldUseNativePluginBackend,
+} from "../shim/upstream-session.mjs";
 
 test("the marketplace proxy stays off unless it is asked for", () => {
   assert.equal(marketplaceProxyEnabled({}), false);
@@ -62,7 +64,7 @@ test("the public bridge is on by default and includes install-state RPCs", () =>
     "DeleteMcpOAuthToken",
   ]) {
     assert.equal(
-      shouldServePublicMarketplace(`/aiserver.v1.DashboardService/${rpc}`, {}),
+      shouldUseNativePluginBackend(`/aiserver.v1.DashboardService/${rpc}`, {}),
       true,
     );
     assert.equal(
@@ -79,34 +81,23 @@ test("the public bridge is on by default and includes install-state RPCs", () =>
   );
 });
 
-test("remote MCP rows advertise a default account and survive protobuf encoding", () => {
-  const server = availableMcpServerMessage(
-    {
-      pluginId: "45893410",
-      name: "gmail",
-      id: 1234,
-      type: "http",
-      config: { type: "http", url: "https://gmailmcp.googleapis.com/mcp/v1" },
-    },
+test("plugin state and OAuth use the signed-in Grok Bot backend", () => {
+  assert.equal(NATIVE_GROKBOT_UPSTREAM, "https://api2.cursor.sh");
+  for (const path of NATIVE_PLUGIN_PATHS) {
+    assert.equal(shouldUseNativePluginBackend(path, {}), true);
+    assert.equal(shouldUseNativePluginBackend(path, { PLUGIN_BACKEND: "local" }), false);
+  }
+  assert.equal(
+    shouldUseNativePluginBackend("/aiserver.v1.DashboardService/ListMarketplacePlugins", {}),
     false,
   );
-  assert.deepEqual(server.accounts, [
-    {
-      accountKey: "default",
-      serverIdentifier: "plugin:45893410:gmail",
-      userHasAccessToken: false,
-    },
-  ]);
+});
 
-  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const root = protobuf.loadSync(path.join(rootDir, "shim", "marketplace.proto"));
-  const Response = root.lookupType("aiserver.v1.GetAvailableMcpServersResponse");
-  const decoded = Response.toObject(Response.decode(Response.encode({ servers: [server] }).finish()), {
-    longs: String,
-    defaults: true,
-  });
-  assert.equal(decoded.servers[0].accounts[0].accountKey, "default");
-  assert.equal(decoded.servers[0].accounts[0].userHasAccessToken, false);
+test("the native session checksum keeps the request timestamp and uses the signed-in machine", () => {
+  const sent = "4bu9qfGv8bf719d2-d65b-4fe9-b1a6-df3b4397328d";
+  const machine = "11111111-2222-3333-4444-555555555555";
+  assert.equal(nativeSessionChecksum(sent, machine), `4bu9qfGv${machine}`);
+  assert.equal(nativeSessionChecksum("short", machine), undefined);
 });
 
 test("the public Next.js payload parser extracts initialPlugins", () => {

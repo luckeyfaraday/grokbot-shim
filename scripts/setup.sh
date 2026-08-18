@@ -17,6 +17,7 @@ require node
 require npm
 require openssl
 require cp
+require python3
 
 if [[ ! -f "$ASAR" || ! -d "$UNPACKED/dist/deps" ]]; then
   echo "Grok Bot resources were not found at: $GROKBOT_RESOURCES" >&2
@@ -31,6 +32,18 @@ fi
 
 mkdir -p "$ROOT/certs" "$ROOT/host/dist/host" "$ROOT/host/dist/deps"
 mkdir -p "$ROOT/appdata" "$ROOT/logs" "$ROOT/state/host-workdir"
+
+SESSION_VENV="$ROOT/state/native-session-venv"
+if [[ ! -x "$SESSION_VENV/bin/python" ]]; then
+  echo "creating the native Grok Bot session bridge environment..."
+  python3 -m venv "$SESSION_VENV"
+fi
+if ! "$SESSION_VENV/bin/python" -c 'import cryptography, secretstorage' >/dev/null 2>&1; then
+  echo "installing native session bridge dependencies..."
+  "$SESSION_VENV/bin/python" -m pip install \
+    --disable-pip-version-check \
+    --requirement "$ROOT/requirements-native-session.txt"
+fi
 
 if [[ ! -f "$ROOT/certs/rootCA.pem" || ! -f "$ROOT/certs/rootCA.key" ]]; then
   echo "generating local certificate authority..."
