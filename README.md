@@ -137,6 +137,27 @@ catalog entry's pinned public Git ref. MCP definitions are read from the
 catalog's pinned source URL, and configured values are stored locally with
 mode `0600`. Plugin setup request bodies are redacted from the shim capture log.
 
+Remote MCP plugins expose a default account row in the plugin detail panel.
+Their OAuth credentials cannot come from the public marketplace: the official
+app normally delegates that private state to Cursor's backend. The shim instead
+supports a local standards-based OAuth bridge. For Gmail, Calendar, and Drive,
+create your own Google OAuth client with `http://localhost:8787/callback` as an
+authorized redirect URI, then set:
+
+```dotenv
+MCP_GOOGLE_CLIENT_ID=your-google-client-id
+MCP_GOOGLE_CLIENT_SECRET=your-google-client-secret
+# Optional; Gmail defaults to the least-privilege scope used by the bridge.
+MCP_GOOGLE_SCOPES=https://www.googleapis.com/auth/gmail.modify
+```
+
+Restart the shim after changing those values. The **Authenticate** button then
+opens the provider's real consent screen. Access and refresh tokens are stored
+only in the ignored `state/mcp-oauth.json` file with mode `0600`; OAuth callback
+codes and remote tool arguments are redacted from capture logs. Other
+standards-based remote MCP servers can use the generic `MCP_OAUTH_CLIENT_ID`,
+`MCP_OAUTH_CLIENT_SECRET`, and `MCP_OAUTH_SCOPES` settings.
+
 Set `PLUGIN_MARKETPLACE=off` to disable the public bridge. The catalog is
 refreshed every 15 minutes while the shim is running; if refresh fails, the
 last cached copy remains usable.

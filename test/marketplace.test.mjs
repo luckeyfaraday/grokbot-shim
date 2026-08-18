@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import protobuf from "protobufjs";
 
 import {
   MARKETPLACE_PATHS,
+  availableMcpServerMessage,
   marketplaceAuthOverride,
   marketplaceChecksumOverride,
   marketplaceProxyEnabled,
@@ -49,10 +53,60 @@ test("the public bridge is on by default and includes install-state RPCs", () =>
     shouldServePublicMarketplace("/aiserver.v1.DashboardService/InstallUserPlugin", {}),
     true,
   );
+  for (const rpc of [
+    "ListSandMcpTools",
+    "ExecuteSandMcpTool",
+    "CheckHttpMcpStatus",
+    "CompleteMcpOAuth",
+    "ValidateMcpOAuthTokens",
+    "DeleteMcpOAuthToken",
+  ]) {
+    assert.equal(
+      shouldServePublicMarketplace(`/aiserver.v1.DashboardService/${rpc}`, {}),
+      true,
+    );
+    assert.equal(
+      shouldProxyMarketplace(`/aiserver.v1.DashboardService/${rpc}`, {
+        PLUGIN_PROXY: "1",
+        PLUGIN_MARKETPLACE: "private",
+      }),
+      false,
+    );
+  }
   assert.equal(
     shouldServePublicMarketplace("/aiserver.v1.InferenceService/Stream", {}),
     false,
   );
+});
+
+test("remote MCP rows advertise a default account and survive protobuf encoding", () => {
+  const server = availableMcpServerMessage(
+    {
+      pluginId: "45893410",
+      name: "gmail",
+      id: 1234,
+      type: "http",
+      config: { type: "http", url: "https://gmailmcp.googleapis.com/mcp/v1" },
+    },
+    false,
+  );
+  assert.deepEqual(server.accounts, [
+    {
+      accountKey: "default",
+      serverIdentifier: "plugin:45893410:gmail",
+      userHasAccessToken: false,
+    },
+  ]);
+
+  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const root = protobuf.loadSync(path.join(rootDir, "shim", "marketplace.proto"));
+  const Response = root.lookupType("aiserver.v1.GetAvailableMcpServersResponse");
+  const decoded = Response.toObject(Response.decode(Response.encode({ servers: [server] }).finish()), {
+    longs: String,
+    defaults: true,
+  });
+  assert.equal(decoded.servers[0].accounts[0].accountKey, "default");
+  assert.equal(decoded.servers[0].accounts[0].userHasAccessToken, false);
 });
 
 test("the public Next.js payload parser extracts initialPlugins", () => {

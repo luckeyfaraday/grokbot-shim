@@ -132,6 +132,8 @@ const SECRET_BODY_PATHS = new Set([
   "/aiserver.v1.DashboardService/InstallUserPlugin",
   "/aiserver.v1.DashboardService/UpdateUserPluginInstall",
   "/aiserver.v1.DashboardService/SetMcpConfig",
+  "/aiserver.v1.DashboardService/CompleteMcpOAuth",
+  "/aiserver.v1.DashboardService/ExecuteSandMcpTool",
 ]);
 
 async function fetchUpstream(req, p, body, { authorization, checksum } = {}) {
